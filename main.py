@@ -107,7 +107,8 @@ class StyleGAN(object):
         """
         for name, param in self.G.named_parameters():
             if param.requires_grad:
-                param.data = self.ema(name, param.data)
+                new_data = self.ema(name, param.data)
+                param.data = new_data
 
     def compute_gradient_penalty(self, real_samples, fake_samples):
         batch_size = real_samples.shape[0]
