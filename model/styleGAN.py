@@ -52,6 +52,7 @@ class SynthesisNet(nn.Module):
                  feature_map_base=4096,
                  feature_map_decay=1,
                  max_feature_maps=512,
+                 sample_method='bilinear',
                  use_leaky=True,
                  negative_slope=0.2,
                  equalize_lr=True,
@@ -68,7 +69,10 @@ class SynthesisNet(nn.Module):
         self.start_constant_tensor = nn.Parameter(torch.ones(size=(1, max_feature_maps, 4, 4)))
 
         """Network Structure"""
-        self.upsampler = nn.Upsample(scale_factor=2, mode='nearest')
+        if sample_method == 'bilinear':
+            self.upsampler = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+        elif sample_method == 'nearest':
+            self.upsampler = nn.Upsample(scale_factor=2, mode='nearest')
         self.to_rgb = nn.ModuleList()
         self.progressive_layers = nn.ModuleList()
         self.progressive_layers.append(GConvBlock(
