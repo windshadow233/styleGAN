@@ -16,8 +16,7 @@ from swd.swd import swd
 class StyleGAN(object):
     def __init__(self, generator: Generator, discriminator: Discriminator, dataset: ImageDataset, n_critic=1,
                  conv_lr=2e-3, mapping_lr=2e-5, beta_0=0, beta_1=0.99, switch_mode_number=800000,
-                 switch_number_increase=0,
-                 use_ema=True, ema_mu=0.999, use_cuda=True, compute_swd_every=10000, **kwargs):
+                 switch_number_increase=0, use_ema=True, ema_mu=0.999, use_cuda=True, compute_swd_every=10000, **kwargs):
         self.G = generator
         self.D = discriminator
         assert generator.R == discriminator.R
@@ -85,6 +84,9 @@ class StyleGAN(object):
         return d / 25000
 
     def update_state(self):
+        """
+        遍历过的真实图片数量达到阈值时,更新状态
+        """
         self.passed_real_images_num = 0
         torch.cuda.empty_cache()
         if self.mode == 'stabilize':
