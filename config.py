@@ -19,6 +19,7 @@ parser.add_argument('--tanh_at_end', type=bool, default=False)     # whether to 
 parser.add_argument('--sigmoid_at_end', type=bool, default=False)  # whether to use sigmoid at the end of the discriminator.
 parser.add_argument('--minibatch_stat_concat', type=bool, default=True)  # whether to add minbatch-std-channel in the discriminator.
 parser.add_argument('--normalize_latent', type=bool, default=True)  # whether to use pixelwise normalization of latent vector.
+parser.add_argument('--sample_method', type=str, choices=['bilinear', 'nearest'], default='bilinear')
 
 
 parser.add_argument('--conv_lr', type=float, default=1e-3)              # learning rate for convolution layers
