@@ -90,6 +90,7 @@ class Flatten(nn.Module):
 
 
 class GConvLayer(nn.Module):
+    """Conv + Noise + AdaIN"""
     def __init__(self, in_channels, out_channels, kernel_size=3, use_conv=True,
                  stride=1, padding=1, equalize_lr=True, use_leaky=True, negative_slope=0.2, w_dim=512):
         super(GConvLayer, self).__init__()
