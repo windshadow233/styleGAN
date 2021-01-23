@@ -97,28 +97,37 @@ class SynthesisNet(nn.Module):
     def get_feature_map_number(self, stage):
         return min(int(self.feature_map_base / (2.0 ** (stage * self.feature_map_decay))), self.max_feature_maps)
 
-    def forward(self, w, level, mode='stabilize', alpha=None):
-        x = self.start_constant_tensor.expand(w.shape[0], -1, -1, -1)
+    def forward(self, w1, w2, crossover_point, level, mode='stabilize', alpha=None):
+        x = self.start_constant_tensor.expand(w1.shape[0], -1, -1, -1)
         if mode == 'stabilize':
-            from_, to_ = 0, level - 1
-            for i in range(from_, to_):
+            for i, layer in enumerate(self.progressive_layers[:level - 1]):
                 if i > 0:
                     x = self.upsampler(x)
-                x = self.progressive_layers[i](x, w)
-            x = self.to_rgb[to_ - 1](x)
+                if w2 is not None and crossover_point is not None and i >= crossover_point:
+                    x = layer(x, w2)
+                else:
+                    x = layer(x, w1)
+            x = self.to_rgb[level - 2](x)
             if self.tanh_at_end:
                 x = torch.tanh(x)
             return x
         assert alpha is not None
-        from_, to_ = 0, level - 2
-        for i in range(from_, to_):
+        for i, layer in enumerate(self.progressive_layers[: level - 2]):
             if i > 0:
                 x = self.upsampler(x)
-            x = self.progressive_layers[i](x, w)
+            if w2 is not None and crossover_point is not None and i >= crossover_point:
+                x = layer(x, w2)
+            else:
+                x = layer(x, w1)
         out1 = self.upsampler(x)
-        out1 = self.to_rgb[to_ - 1](out1)
-        x = self.progress_growing[to_](x)
-        out2 = self.to_rgb[to_](x)
+        out1 = self.to_rgb[level - 3](out1)
+        if w2 is not None and crossover_point is not None and level - 2 >= crossover_point:
+            x = self.upsampler(x)
+            x = self.progressive_layers[level - 2](x, w2)
+        else:
+            x = self.upsampler(x)
+            x = self.progressive_layers[level - 2](x, w1)
+        out2 = self.to_rgb[level - 2](x)
         if self.tanh_at_end:
             out1 = torch.tanh(out1)
             out2 = torch.tanh(out1)
@@ -152,9 +161,12 @@ class Generator(nn.Module):
                                           use_leaky=use_leaky, negative_slope=negative_slope,
                                           equalize_lr=equalize_lr, tanh_at_end=tanh_at_end)
 
-    def forward(self, z, level, mode='stabilize', alpha=None):
-        w = self.mapping(z)
-        x = self.synthesis_net(w, level=level, mode=mode, alpha=alpha)
+    def forward(self, z1, z2, crossover_point, level, mode='stabilize', alpha=None):
+        w1 = self.mapping(z1)
+        w2 = None
+        if z2 is not None and crossover_point is not None:
+            w2 = self.mapping(z2)
+        x = self.synthesis_net(w1, w2, crossover_point, level=level, mode=mode, alpha=alpha)
         return x
 
 
