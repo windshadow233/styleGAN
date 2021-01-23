@@ -1,6 +1,7 @@
 from torch import optim, autograd
 from torchvision import transforms as T
 import sys
+import random
 import matplotlib
 
 matplotlib.use('Agg')
@@ -15,8 +16,8 @@ from swd.swd import swd
 
 class StyleGAN(object):
     def __init__(self, generator: Generator, discriminator: Discriminator, dataset: ImageDataset, n_critic=1,
-                 conv_lr=2e-3, mapping_lr=2e-5, beta_0=0, beta_1=0.99, switch_mode_number=800000,
-                 switch_number_increase=0, use_ema=True, ema_mu=0.999, use_cuda=True, compute_swd_every=10000, **kwargs):
+                 conv_lr=2e-3, mapping_lr=2e-5, beta_0=0, beta_1=0.99, mix_style_prob=0.9, switch_mode_number=800000,
+                 use_ema=True, ema_mu=0.999, use_cuda=True, compute_swd_every=10000, **kwargs):
         self.G = generator
         self.D = discriminator
         assert generator.R == discriminator.R
@@ -24,8 +25,8 @@ class StyleGAN(object):
         self.n_critic = n_critic
         # Discriminator “看” 过的真实图片达到switch_mode_number时,进行模式的切换
         self.switch_mode_number = switch_mode_number
-        self.switch_number_increase = switch_number_increase
         self.use_ema = use_ema
+        self.mix_style_prob = mix_style_prob
         self.use_cuda = use_cuda and torch.cuda.is_available()
         self.R = generator.R
 
@@ -98,7 +99,6 @@ class StyleGAN(object):
             self.level += 1
             self.current_batch_size = self.batch_sizes.get(self.level)
             self.fade_in_alpha = 0
-            self.switch_mode_number += self.switch_number_increase
             self.alpha_step = 1 / (self.switch_mode_number / self.current_batch_size)
         else:
             self.mode = 'stabilize'
@@ -112,7 +112,10 @@ class StyleGAN(object):
                 new_data = self.ema(name, param.data)
                 param.data = new_data
 
-    def compute_gradient_penalty(self, real_samples, fake_samples):
+    def R1_regularization(self, real_samples):
+        pass
+
+    def gradient_penalty(self, real_samples, fake_samples):
         batch_size = real_samples.shape[0]
         alpha = torch.rand(size=(batch_size, 1, 1, 1))
         if self.use_cuda:
@@ -129,10 +132,18 @@ class StyleGAN(object):
     def train_G(self):
         self.synthesis_optim.zero_grad()
         self.mapping_optim.zero_grad()
-        noise = torch.randn(size=(self.current_batch_size, self.G.z_dim))
+        noise1 = torch.randn(size=(self.current_batch_size, self.G.z_dim))
+        noise2 = None
+        crossover_point = None
         if self.use_cuda:
-            noise = noise.cuda()
-        generated_images = self.G(noise, level=self.level, mode=self.mode, alpha=self.fade_in_alpha)
+            noise1 = noise1.cuda()
+        if random.random() < self.mix_style_prob:
+            noise2 = torch.randn(size=(self.current_batch_size, self.G.z_dim))
+            crossover_point = int(random.random() * (self.level - 2))
+            if self.use_cuda:
+                noise2 = noise2.cuda()
+        generated_images = self.G(noise1, noise2, crossover_point,
+                                  level=self.level, mode=self.mode, alpha=self.fade_in_alpha)
         score = - self.D(generated_images, level=self.level, mode=self.mode, alpha=self.fade_in_alpha).mean()
         score.backward()
         self.synthesis_optim.step()
@@ -142,14 +153,22 @@ class StyleGAN(object):
 
     def train_D(self):
         self.D_optim.zero_grad()
-        noise = torch.randn(size=(self.current_batch_size, self.G.z_dim))
+        noise1 = torch.randn(size=(self.current_batch_size, self.G.z_dim))
+        noise2 = None
+        crossover_point = None
         real_images = self.dataset(self.current_batch_size, self.level)
         if self.use_cuda:
-            noise, real_images = noise.cuda(), real_images.cuda()
-        fake_images = self.G(noise, level=self.level, mode=self.mode, alpha=self.fade_in_alpha)
+            noise1, real_images = noise1.cuda(), real_images.cuda()
+        if random.random() < self.mix_style_prob:
+            noise2 = torch.randn(size=(self.current_batch_size, self.G.z_dim))
+            crossover_point = int(random.random() * (self.level - 2))
+            if self.use_cuda:
+                noise2 = noise2.cuda()
+        fake_images = self.G(noise1, noise2, crossover_point,
+                             level=self.level, mode=self.mode, alpha=self.fade_in_alpha)
         real_score = self.D(real_images, level=self.level, mode=self.mode, alpha=self.fade_in_alpha).mean()
         fake_score = self.D(fake_images, level=self.level, mode=self.mode, alpha=self.fade_in_alpha).mean()
-        gradient_penalty = self.compute_gradient_penalty(real_images, fake_images)
+        gradient_penalty = self.gradient_penalty(real_images, fake_images)
         epsilon_penalty = 1e-3 * torch.mean(real_score ** 2)  # 防止正例得分离0过远
         loss = fake_score - real_score + 10 * gradient_penalty + epsilon_penalty
         loss.backward()
